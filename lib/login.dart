@@ -6,6 +6,10 @@ import 'package:flutter_appauth/flutter_appauth.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:http/http.dart' as http;
 
+import 'models/InstitutionInfo.dart';
+import 'models/ProfileInfo.dart';
+import 'models/UserInfo.dart';
+
 class ProfilePage extends StatefulWidget {
   const ProfilePage({super.key, required this.oAuthToken});
 
@@ -15,41 +19,39 @@ class ProfilePage extends StatefulWidget {
   State<ProfilePage> createState() => _ProfilePageState();
 }
 
-class UserInfo {
-  final String sub;
-  final String givenName;
-  final String familyName;
-  final String name;
-
-  const UserInfo(
-      {required this.sub,
-      required this.givenName,
-      required this.familyName,
-      required this.name});
-
-  factory UserInfo.fromJson(Map<String, dynamic> json) {
-    return UserInfo(
-        sub: json['sub'],
-        givenName: json['given_name'],
-        familyName: json['family_name'],
-        name: json['name']);
-  }
-}
-
 class _ProfilePageState extends State<ProfilePage> {
-  late Future<UserInfo> userInfo;
+  late Future<ProfileInfo> profileInfo;
 
   @override
   ProfilePage get widget => super.widget;
 
-  Future<UserInfo> getUserInfo(String oAuthToken) async {
-    final response = await http.get(
+  Future<ProfileInfo> getProfileInfo(String oAuthToken) async {
+    final userInfoResponse = await http.get(
       Uri.parse(dotenv.get('USER_INFO_ENDPOINT', fallback: '')),
       headers: {'Authorization': 'Bearer $oAuthToken'},
     );
 
-    if (response.statusCode == 200) {
-      return UserInfo.fromJson(jsonDecode(response.body));
+    final institutionResponse = await http.get(
+      Uri.parse(dotenv.get('INSTITUTION_INFO_ENDPOINT', fallback: '')),
+      headers: {'Authorization': 'Bearer $oAuthToken'},
+    );
+
+    log(jsonDecode(userInfoResponse.body).toString());
+    log(jsonDecode(institutionResponse.body).toString());
+
+    if (userInfoResponse.statusCode == 200 &&
+        institutionResponse.statusCode == 200) {
+      final userInfo = UserInfo.fromJson(jsonDecode(userInfoResponse.body));
+      final institutionInfo =
+          InstitutionInfo.fromJson(jsonDecode(institutionResponse.body));
+      return ProfileInfo(
+          userSub: userInfo.sub,
+          uniSub: institutionInfo.sub,
+          country: institutionInfo.country,
+          givenName: userInfo.givenName,
+          familyName: userInfo.familyName,
+          name: userInfo.name,
+          institutionName: institutionInfo.name);
     }
 
     throw Exception('Failed to load user data');
@@ -58,7 +60,7 @@ class _ProfilePageState extends State<ProfilePage> {
   @override
   void initState() {
     super.initState();
-    userInfo = getUserInfo(widget.oAuthToken);
+    profileInfo = getProfileInfo(widget.oAuthToken);
   }
 
   @override
@@ -66,8 +68,8 @@ class _ProfilePageState extends State<ProfilePage> {
     return Scaffold(
       appBar: AppBar(title: const Text('Profile')),
       body: Center(
-        child: FutureBuilder<UserInfo>(
-            future: userInfo,
+        child: FutureBuilder<ProfileInfo>(
+            future: profileInfo,
             builder: (context, snapshot) {
               if (snapshot.hasData) {
                 return Column(
@@ -84,7 +86,11 @@ class _ProfilePageState extends State<ProfilePage> {
                       ),
                     ),
                     const SizedBox(height: 40),
-                    Text(snapshot.data!.name),
+                    Text('User: ${snapshot.data!.name}'),
+                    const SizedBox(height: 10),
+                    Text('Country: ${snapshot.data!.country}'),
+                    const SizedBox(height: 10),
+                    Text('Institution: ${snapshot.data!.institutionName}'),
                   ],
                 );
               } else if (snapshot.hasError) {
