@@ -1,6 +1,20 @@
-import 'package:flutter/material.dart';
+import 'dart:convert';
+import 'dart:developer';
 
-void main() {
+import 'package:flutter/material.dart';
+import 'package:flutter_appauth/flutter_appauth.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:http/http.dart' as http;
+
+const FlutterAppAuth appAuth = FlutterAppAuth();
+AuthorizationServiceConfiguration serviceConfiguration =
+  AuthorizationServiceConfiguration(
+    authorizationEndpoint: dotenv.get('OAUTH_AUTHORIZE_ENDPOINT', fallback: ''),
+    tokenEndpoint: dotenv.get('OAUTH_TOKEN_ENDPOINT', fallback: ''));
+
+Future<void> main() async {
+  await dotenv.load();
+
   runApp(const MyApp());
 }
 
@@ -48,17 +62,44 @@ class MyHomePage extends StatefulWidget {
 }
 
 class _MyHomePageState extends State<MyHomePage> {
-  int _counter = 0;
+  Future<String> getOAuthToken() async {
+    final clientId = dotenv.get('OAUTH_CLIENT_ID', fallback: '');
+    final redirectUrl = dotenv.get('OAUTH_REDIRECT_URL', fallback: '');
+    final String scopesString = dotenv.get('OAUTH_SCOPES', fallback: '');
+    final List<String> scopes = scopesString.split(',');
 
-  void _incrementCounter() {
-    setState(() {
-      // This call to setState tells the Flutter framework that something has
-      // changed in this State, which causes it to rerun the build method below
-      // so that the display can reflect the updated values. If we changed
-      // _counter without calling setState(), then the build method would not be
-      // called again, and so nothing would appear to happen.
-      _counter++;
-    });
+    final authenticateRequest = AuthorizationRequest(clientId, redirectUrl,
+        serviceConfiguration: serviceConfiguration, scopes: scopes);
+
+    final AuthorizationResponse? authorizationResponse =
+        await appAuth.authorize(authenticateRequest);
+
+    final tokenRequest = TokenRequest(clientId, redirectUrl,
+        serviceConfiguration: serviceConfiguration,
+        scopes: scopes,
+        grantType: 'authorization_code',
+        codeVerifier: authorizationResponse?.codeVerifier,
+        authorizationCode: authorizationResponse?.authorizationCode);
+
+    final tokenResult = await appAuth.token(tokenRequest);
+
+    return tokenResult?.accessToken ?? '';
+  }
+
+  Future<String> getUserInfo(String oAuthToken) async {
+    final response = await http.get(
+      Uri.parse(dotenv.get('USER_INFO_ENDPOINT', fallback: '')),
+      headers: {'Authorization': 'Bearer $oAuthToken'},
+    );
+
+    return jsonDecode(response.body).toString();
+  }
+
+  Future<void> login() async {
+    final String oAuthToken = await getOAuthToken();
+    final String userInfo = await getUserInfo(oAuthToken);
+
+    log(userInfo);
   }
 
   @override
@@ -95,21 +136,17 @@ class _MyHomePageState extends State<MyHomePage> {
           // horizontal).
           mainAxisAlignment: MainAxisAlignment.center,
           children: <Widget>[
-            const Text(
-              'You have pushed the button this many times:',
-            ),
-            Text(
-              '$_counter',
-              style: Theme.of(context).textTheme.headline4,
-            ),
+            ElevatedButton(
+              child: const Text('Login with UNiDAYS'),
+              onPressed: login,
+              style: ButtonStyle(
+                foregroundColor: MaterialStateProperty.all<Color>(Colors.white),
+                backgroundColor: MaterialStateProperty.all<Color>(Colors.lightBlue.shade900)
+              ),
+            )
           ],
         ),
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _incrementCounter,
-        tooltip: 'Increment',
-        child: const Icon(Icons.add),
-      ), // This trailing comma makes auto-formatting nicer for build methods.
     );
   }
 }
